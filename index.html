@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AncestryDNA mtDNA predictor</title>
+</head>
+
+<body>
+
+    <div class="main" id="startingSection">
+        <div class="title">
+            <h1>AncestryDNA mtDNA predictor</h1><br>
+            <p style="margin: 0;">by Josh</p>
+
+            <h2>How to Use</h2>
+            <p>1) Download your AncestryDNA raw file from "<a href="https://ancestry.com"
+                    target="_blank">Ancestry.com</a>" <br> (Under DNA settings)</p>
+            <p>2) Unzip the file, you should see a <code>AncestryDNA.txt</code> file</p>
+            <p>3) Click "Choose file" below, and select the <code>AncestryDNA.txt</code> file, wherever it is on your
+                computer</p>
+            <p>4) Click the "Analyse" button</p>
+        </div>
+
+        <div class="sect">
+            <input type="file" id="file" class="fileUpload" accept=".txt">
+
+            <input disabled="true" onclick="startProcess()" id="btn" type="button" class="btn" value="Analyse">
+        </div>
+        <div class="bottom">
+            <h3>Using Phylotree 17</h3>
+            <p>Credits to:
+                <br>
+                <a href="https://www.phylotree.org/">Mannis van Oven (who maintains the Phylotree)</a><br>
+
+                <a href="https://github.com/seppinho/haplogrep-cmd">Haplogroup CMD Project (for Haplogroup information
+                    file)</a> <br>
+            </p>
+            <div id="messages"></div>
+
+        </div>
+    </div>
+    <div class="haplogroups" id="resultsSection">
+        <div class="title">
+            <h1>Results</h1>
+            <p>Amount of locations tested: <a id="locationsTested"></a></p>
+        </div>
+        <div id="haplogroupResults"></div>
+
+    </div>
+
+
+</body>
+
+<script>
+    const chromosomeNumber = "26"; // mtDNA is Chromosome 26
+    const jsonFileName = "./mutations.json"
+    const dbFileName = "./rCRS.txt"
+    const amountShown = 20;
+
+    const messageHTML = document.getElementById("messages");
+    const fileHTML = document.getElementById("file");
+    const buttonHTML = document.getElementById("btn");
+
+    const startingSection = document.getElementById("startingSection");
+    const resultsSection = document.getElementById("resultsSection");
+    const haplogroupResults = document.getElementById("haplogroupResults");
+    const locationsTested = document.getElementById("locationsTested");
+
+
+
+
+
+
+
+
+    const setMessage = (type, msg) => {
+        messageHTML.innerHTML = msg
+        switch (type) {
+            case "error":
+                messageHTML.className = "error"
+                break;
+            case "success":
+                messageHTML.className = "success"
+                break;
+            default:
+                messageHTML.className = "message"
+                break;
+        }
+
+    }
+
+    const getMutations = (fileRaw) => {
+        const lines = fileRaw.split("\n")
+        let mtDNAMutations = {}
+
+
+        lines.forEach((line) => {
+            let lineStripped = line.trim().split("\t");
+            if (lineStripped.length == 5 && lineStripped[1] == "26") {
+                mtDNAMutations[lineStripped[2]] = lineStripped[3]
+            }
+
+
+        })
+        return mtDNAMutations
+    }
+
+    const scoreHaplogroup = (db, haplogroup, mutations) => {
+        let wrong = [];
+        let correct = [];
+        let not_found = [];
+
+        const mutation_keys = Object.keys(mutations);
+
+        haplogroup["mutations"].forEach((mut) => {
+            if (!mut.includes(".")) {
+                if (!mut.includes("!")) {
+                    mut_pos = mut.substring(0, mut.length - 1)
+                    mut_allele = mut.substring(mut.length - 1, mut.length)
+                } else {
+                    mut_pos = mut.substring(0, mut.length - 2)
+                    mut_allele = db[parseInt(mut_pos) - 1]
+
+                }
+            }
+            if (mutation_keys.includes(mut_pos)) {
+                if (mutations[mut_pos] == mut_allele) {
+                    correct.push(mut);
+                } else {
+                    wrong.push(mut);
+                }
+
+            } else {
+                not_found.push(mut);
+            }
+
+        })
+
+        return {
+            correct,
+            wrong,
+            not_found
+        }
+
+
+    }
+
+    const simpleScore = (scrs) => {
+        return scrs["correct"].length - scrs["wrong"].length - 0.0001 * scrs["not_found"].length
+
+    }
+
+    const placeHTML = (scores, mutations) => {
+        startingSection.style.display = "none";
+        resultsSection.style.display = "flex";
+        locationsTested.innerHTML = Object.keys(mutations).length.toString()
+
+        scores.forEach((haplogroup, index) => {
+            let mainElement = document.createElement("div")
+            mainElement.className = "haplogroupResult"
+
+            let title = document.createElement("h2");
+            title.innerHTML = (index + 1).toString() + ") " + haplogroup.name;
+
+            mainElement.appendChild(title);
+            let score = document.createElement("h4");
+            score.innerHTML = "Score: " + haplogroup.score.toString();
+            mainElement.appendChild(score);
+
+            let correct = document.createElement("div");
+            correct.className = "correctMutations";
+
+            let correctTitle = document.createElement("h5");
+            correctTitle.innerHTML = `Correct (${haplogroup.info.correct.length})`
+
+            mainElement.appendChild(correctTitle);
+
+            haplogroup.info.correct.forEach((mutation) => {
+                let mut = document.createElement("p");
+                mut.innerHTML = mutation;
+
+                correct.appendChild(mut);
+
+            })
+            mainElement.appendChild(correct);
+
+
+            let wrong = document.createElement("div");
+            wrong.className = "wrongMutations";
+
+            let wrongTitle = document.createElement("h5");
+            wrongTitle.innerHTML = `Wrong (${haplogroup.info.wrong.length})`
+
+            mainElement.appendChild(wrongTitle);
+
+            haplogroup.info.wrong.forEach((mutation) => {
+                let mut = document.createElement("p");
+                mut.innerHTML = mutation;
+
+                wrong.appendChild(mut);
+
+            })
+            mainElement.appendChild(wrong);
+
+            let notTested = document.createElement("div");
+            notTested.className = "notTestedMutations";
+
+            let notTestedTitle = document.createElement("h5");
+            notTestedTitle.innerHTML = `Not Tested (${haplogroup.info.not_found.length})`
+
+            mainElement.appendChild(notTestedTitle);
+
+            haplogroup.info.not_found.forEach((mutation) => {
+                let mut = document.createElement("p");
+                mut.innerHTML = mutation;
+
+                notTested.appendChild(mut);
+
+            })
+            mainElement.appendChild(notTested);
+
+
+
+            haplogroupResults.appendChild(mainElement)
+
+
+
+        })
+
+
+
+
+
+    }
+
+    const main = async (fileRaw) => {
+        console.log("STARTING")
+        let mutations = getMutations(fileRaw);
+        console.log("\n MUTATIONS FETCHED")
+
+        const haplogroupsRaw = await fetch(jsonFileName);
+        const haplogroups = await haplogroupsRaw.json();
+
+        console.log("\n HAPLOGROUPS FETCHED")
+
+
+        const dbRaw = await fetch(dbFileName);
+        const db = await dbRaw.text();
+
+        console.log("\n rCRS FETCHED")
+
+        let finalInfo = []
+        let scores = { correct: [], wrong: [], not_found: [] };
+        haplogroups.forEach((hap) => {
+            scores = scoreHaplogroup(db, hap, mutations);
+
+            finalInfo.push({ name: hap["name"], score: simpleScore(scores), info: scores });
+        })
+
+        console.log("\n Haplogroups Scored")
+
+
+        finalInfo.sort((a, b) => {
+            if (a.score < b.score) {
+                return 1;
+            } else if (a.score > b.score) {
+                return -1;
+            } else {
+                return 0;
+            }
+        })
+        console.log("\n SORTING FINISHED")
+
+
+        placeHTML(finalInfo.splice(0, amountShown), mutations)
+
+
+
+
+
+
+    }
+
+
+
+    const startProcess = () => {
+        if (fileHTML.files.length > 0) {
+            const file = fileHTML.files[0]
+            const fileReader = new FileReader();
+            fileReader.onload = (evt) => {
+                main(fileReader.result)
+            }
+            let x = fileReader.readAsText(file, 'utf-8');
+
+        }
+
+    }
+
+    fileHTML.addEventListener("change", () => {
+        if (fileHTML.files.length > 0) {
+            buttonHTML.removeAttribute("disabled")
+        } else {
+            buttonHTML.setAttribute("disabled", "");
+
+        }
+    })
+
+
+
+
+</script>
+
+<style>
+    body {
+        box-sizing: border-box;
+        /* padding: 10px; */
+        margin: 0;
+        /* overflow: hidden; */
+    }
+
+    .haplogroupResult {
+        background-color: #d8d8da;
+        display: flex;
+        flex-direction: column;
+        width: 70vw;
+        margin: 30px;
+
+        padding: 20px;
+
+
+    }
+
+    .correctMutations {
+        display: flex;
+        flex-wrap: wrap;
+        /* justify-content: center; */
+        align-items: center;
+        margin: 4px;
+    }
+
+    .wrongMutations {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 4px;
+    }
+
+    .notTestedMutations {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 4px;
+    }
+
+    .correctMutations p {
+        margin: 3px;
+    }
+
+    .wrongMutations p {
+        margin: 3px;
+    }
+
+    .notTestedMutations p {
+        margin: 3px;
+    }
+
+    #resultsSection {
+        display: none;
+        font-family: Arial, Helvetica, sans-serif;
+        display: flex;
+        flex-direction: column;
+        width: auto;
+        /* justify-content: center; */
+
+        align-items: center;
+        width: 100vw;
+        height: 100vh;
+
+    }
+
+    #resultsSection {
+        display: none;
+    }
+
+    .main {
+        /* font-family: monospace; */
+        font-family: Arial, Helvetica, sans-serif;
+        display: flex;
+        flex-direction: column;
+        width: auto;
+        /* justify-content: center; */
+
+        align-items: center;
+        width: 100vw;
+        height: 100vh;
+
+    }
+
+    .sect {
+        padding: 30px;
+        /* height: 100px; */
+        background-color: #d8d8da;
+        /* background-color: red; */
+        display: flex;
+        flex-direction: column;
+        justify-content: space-evenly;
+        align-items: center;
+    }
+
+    input {
+        margin: 10px;
+    }
+
+    .title {
+        display: flex;
+        width: 100vw;
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+        align-items: center;
+        /* position: fixed; */
+        /* top: 10px; */
+        margin-bottom: 30px;
+
+    }
+
+    h1 {
+        text-align: center;
+        margin-bottom: 3px;
+
+    }
+
+    .main .btn {
+        width: 300px;
+    }
+
+    .bottom {
+        position: fixed;
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+
+        bottom: 0;
+    }
+
+    #messages {
+
+        width: 100vw;
+
+
+        text-align: center;
+
+    }
+
+    .success {
+        background-color: rgb(111, 249, 102);
+        color: black;
+
+    }
+
+    .message {
+        background-color: rgb(233, 243, 55);
+        color: black;
+
+    }
+
+    .error {
+        background-color: rgb(210, 100, 100);
+        color: white;
+    }
+
+    p {
+        text-align: center;
+    }
+</style>
+
+
+
+</html>
